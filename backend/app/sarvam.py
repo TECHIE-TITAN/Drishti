@@ -122,7 +122,7 @@ def transcribe(audio: bytes, filename: str, content_type: str) -> str:
     r = httpx.post(
         config.SARVAM_BASE + "/speech-to-text",
         headers=_headers(),
-        files={"file": (filename, audio, content_type)},
+        files={"file": (filename, audio, content_type.split(";")[0].strip() or "audio/wav")},
         data={"model": config.STT_MODEL, "mode": "transcribe"},
         timeout=60,
     )
