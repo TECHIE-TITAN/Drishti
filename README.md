@@ -2,6 +2,12 @@
 
 Drishti is an accessibility assistant built on Sarvam AI. A user points a phone at a traffic sign or public notice board and gets the meaning in their own language, as large captions and spoken audio. They can then ask follow-up questions by voice or text. It is aimed at people who are blind or low-vision, deaf or hard of hearing, low-literacy, or unfamiliar with the local language.
 
+## Deployment link
+
+**Live demo:** <https://drishti-jz8w.onrender.com/>
+
+Hosted on Render's free tier, so the first request after a period of inactivity can take about a minute while it wakes up.
+
 ## Workflow
 
 1. **Choose languages.** The user picks the language to be explained in, and the language written on the sign.
