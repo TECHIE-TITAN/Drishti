@@ -9,7 +9,6 @@ import zipfile
 from typing import List, Optional, Tuple
 
 import httpx
-import requests
 from sarvamai import SarvamAI
 
 from . import config
@@ -65,7 +64,7 @@ def ocr_image(image: bytes, filename: str, content_type: str, language: str = "e
     except Exception as e:  # SDK ApiError, network errors
         raise SarvamError("OCR failed: %s" % e)
 
-    resp = requests.get(url, timeout=60)
+    resp = httpx.get(url, timeout=60, follow_redirects=True)
     resp.raise_for_status()
     texts: List[str] = []
     with zipfile.ZipFile(io.BytesIO(resp.content)) as z:

@@ -1,7 +1,7 @@
 """Download the pretrained sign detector and print its class names.
 
 Run from the project root:
-    backend/.venv/bin/pip install ultralytics huggingface_hub
+    backend/.venv/bin/pip install -r backend/requirements.txt
     backend/.venv/bin/python backend/scripts/fetch_model.py
 
 Then edit backend/data/class_map.json for any class the fuzzy matcher misses.
@@ -9,14 +9,22 @@ Then edit backend/data/class_map.json for any class the fuzzy matcher misses.
 import json
 from pathlib import Path
 
-from huggingface_hub import hf_hub_download
+import httpx
 from ultralytics import YOLO
 
 ROOT = Path(__file__).resolve().parents[2]
-REPO, FILE = "ankitjha07/Traffic-Sign-Detection-YOLOv8", "best.pt"
+URL = "https://huggingface.co/ankitjha07/Traffic-Sign-Detection-YOLOv8/resolve/main/best.pt"
 
-path = hf_hub_download(REPO, FILE, local_dir=str(ROOT / "backend" / "models"))
+path = ROOT / "backend" / "models" / "best.pt"
+path.parent.mkdir(parents=True, exist_ok=True)
+if not path.exists():
+    with httpx.stream("GET", URL, follow_redirects=True, timeout=120) as r:
+        r.raise_for_status()
+        with open(path, "wb") as f:
+            for chunk in r.iter_bytes():
+                f.write(chunk)
 print("weights:", path)
+path = str(path)
 
 names = YOLO(path).names
 print("\nModel classes:")
