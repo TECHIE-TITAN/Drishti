@@ -1,0 +1,11 @@
+sarvamai>=0.1.37
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9
+python-dotenv>=1.0
+httpx>=0.27
+requests>=2.31
+pillow>=10.0
+# Pictorial sign detection (pretrained YOLO):
+ultralytics
+huggingface_hub

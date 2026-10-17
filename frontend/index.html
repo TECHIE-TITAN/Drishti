@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drishti</title>
+<style>
+  :root { --bg:#0b1020; --card:#151b30; --fg:#f5f7ff; --muted:#a9b2d0; --accent:#ffd23f; --ok:#4ade80; --err:#ff6b6b; --line:#2a3358; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:18px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  main { max-width:640px; margin:0 auto; padding:16px; display:grid; gap:14px; }
+  h1 { margin:0; font-size:1.6rem; } h1 small { color:var(--muted); font-size:.9rem; font-weight:400; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; display:grid; gap:10px; }
+  label { color:var(--muted); font-size:.85rem; display:grid; gap:4px; }
+  select, input[type=text] { font:inherit; padding:12px; border-radius:10px; border:1px solid var(--line); background:#0e1428; color:var(--fg); width:100%; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  button, .btn { font:inherit; font-weight:700; padding:16px; border-radius:12px; border:2px solid var(--accent); background:var(--accent); color:#111; cursor:pointer; text-align:center; }
+  button.secondary, .btn.secondary { background:transparent; color:var(--accent); }
+  button:disabled { opacity:.5; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline:3px solid #fff; outline-offset:2px; }
+  video { width:100%; border-radius:12px; background:#000; max-height:46vh; object-fit:cover; }
+  #preview { width:100%; border-radius:12px; max-height:30vh; object-fit:contain; background:#000; }
+  .hidden { display:none !important; }
+  .check { display:flex; gap:10px; align-items:center; color:var(--fg); font-size:1rem; }
+  .check input { width:24px; height:24px; }
+  #title { font-size:1.5rem; font-weight:800; color:var(--accent); }
+  #explanation { font-size:1.45rem; line-height:1.5; }
+  .tag { display:inline-block; font-size:.75rem; color:var(--muted); border:1px solid var(--line); border-radius:99px; padding:2px 10px; margin-right:6px; }
+  #original { color:var(--muted); font-size:.9rem; white-space:pre-wrap; }
+  #status { min-height:1.5em; color:var(--muted); }
+  #status.err { color:var(--err); } #status.ok { color:var(--ok); }
+  .rec { border-color:var(--err); background:var(--err); color:#111; }
+  summary { cursor:pointer; color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Drishti <small>sign &amp; board assistant</small></h1>
+
+  <section class="card" aria-label="Settings">
+    <div class="row">
+      <label>Explain in
+        <select id="language"></select>
+      </label>
+      <label>Language written on the sign
+        <select id="signLanguage"></select>
+      </label>
+    </div>
+    <label class="check"><input type="checkbox" id="simple"> Simple words, slower voice</label>
+  </section>
+
+  <section class="card" aria-label="Scan a sign">
+    <video id="video" class="hidden" autoplay playsinline muted></video>
+    <img id="preview" class="hidden" alt="Captured sign">
+    <button id="camBtn" class="secondary hidden">Start camera</button>
+    <button id="snapBtn" class="hidden">Scan sign</button>
+    <label class="btn" id="fileBtn" tabindex="0" role="button">Take or choose a photo
+      <input id="file" type="file" accept="image/*" capture="environment" class="hidden">
+    </label>
+    <details>
+      <summary>Pictorial sign with no text? Pick it from the list</summary>
+      <div class="row" style="margin-top:10px">
+        <select id="signPick" aria-label="Pick a sign"></select>
+        <button id="pickBtn" class="secondary">Explain</button>
+      </div>
+    </details>
+  </section>
+
+  <div id="status" role="status" aria-live="polite"></div>
+
+  <section class="card hidden" id="result" aria-live="polite">
+    <div><span class="tag" id="kindTag"></span><span class="tag" id="srcTag"></span></div>
+    <div id="title"></div>
+    <div id="explanation"></div>
+    <details><summary>Text read from the sign</summary><div id="original"></div></details>
+    <button id="replay" class="secondary">Play again</button>
+  </section>
+
+  <section class="card hidden" id="askCard" aria-label="Ask a question">
+    <div><strong>Ask about this sign</strong></div>
+    <button id="micBtn">Hold to speak? Tap to start / stop</button>
+    <label id="audioFallback" class="btn secondary hidden">Record question (device recorder)
+      <input id="audioFile" type="file" accept="audio/*" capture class="hidden">
+    </label>
+    <div class="row" style="grid-template-columns:1fr auto">
+      <input type="text" id="qText" placeholder="...or type your question" aria-label="Type your question">
+      <button id="qBtn" style="padding:12px 18px">Ask</button>
+    </div>
+    <div id="qa" class="hidden">
+      <div class="tag">You asked</div><div id="qOut"></div>
+      <div class="tag" style="margin-top:8px">Answer</div><div id="aOut" style="font-size:1.3rem"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const statusEl = $("status");
+let context = "";
+let currentAudio = null;
+let stream = null;
+
+function setStatus(msg, cls) { statusEl.textContent = msg || ""; statusEl.className = cls || ""; }
+function busy(on) { document.querySelectorAll("button").forEach(b => b.disabled = on); }
+
+async function api(path, form) {
+  const r = await fetch("/api/" + path, { method: "POST", body: form });
+  let data = {};
+  try { data = await r.json(); } catch (e) {}
+  if (!r.ok) throw new Error(data.detail || ("Request failed (" + r.status + ")"));
+  return data;
+}
+
+function play(b64, mime) {
+  if (currentAudio) currentAudio.pause();
+  currentAudio = new Audio("data:" + mime + ";base64," + b64);
+  currentAudio.play().catch(() => setStatus("Tap 'Play again' to hear it.", ""));
+}
+
+function baseForm() {
+  const f = new FormData();
+  f.append("language", $("language").value);
+  f.append("sign_language", $("signLanguage").value);
+  f.append("simple", $("simple").checked ? "true" : "false");
+  return f;
+}
+
+function showResult(d) {
+  context = d.context || "";
+  $("result").classList.remove("hidden");
+  $("askCard").classList.remove("hidden");
+  $("kindTag").textContent = { db_sign: "Verified sign", text_board: "Text board", none: "Nothing found" }[d.kind] || d.kind;
+  $("srcTag").textContent = d.confidence ? "confidence " + Math.round(d.confidence * 100) + "%" : (d.source || "");
+  $("title").textContent = d.title || "";
+  $("explanation").textContent = d.explanation;
+  $("original").textContent = d.original_text || "(none)";
+  $("qa").classList.add("hidden");
+  $("replay").onclick = () => play(d.audio_b64, d.audio_mime);
+  play(d.audio_b64, d.audio_mime);
+  $("result").scrollIntoView({ behavior: "smooth" });
+}
+
+async function analyze(form, label) {
+  busy(true); setStatus(label || "Reading the sign...", "");
+  try {
+    const d = await api("analyze", form);
+    showResult(d); setStatus("Done.", "ok");
+  } catch (e) { setStatus(e.message, "err"); }
+  finally { busy(false); }
+}
+
+// ---- image capture
+async function downscale(blobOrFile, maxDim = 1400) {
+  const bmp = await createImageBitmap(blobOrFile);
+  const s = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
+  const c = document.createElement("canvas");
+  c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s);
+  c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+  return new Promise(res => c.toBlob(res, "image/jpeg", 0.85));
+}
+
+async function submitImage(blob) {
+  const small = await downscale(blob).catch(() => blob);
+  $("preview").src = URL.createObjectURL(small);
+  $("preview").classList.remove("hidden");
+  const f = baseForm();
+  f.append("image", small, "sign.jpg");
+  analyze(f);
+}
+
+$("file").addEventListener("change", e => { if (e.target.files[0]) submitImage(e.target.files[0]); e.target.value = ""; });
+$("fileBtn").addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("file").click(); } });
+
+const canLiveCamera = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.isSecureContext);
+if (canLiveCamera) $("camBtn").classList.remove("hidden");
+
+$("camBtn").onclick = async () => {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+    $("video").srcObject = stream;
+    $("video").classList.remove("hidden"); $("snapBtn").classList.remove("hidden");
+    $("camBtn").classList.add("hidden");
+  } catch (e) { setStatus("Camera unavailable: " + e.message + ". Use 'Take or choose a photo'.", "err"); }
+};
+$("snapBtn").onclick = () => {
+  const v = $("video");
+  const c = document.createElement("canvas");
+  c.width = v.videoWidth; c.height = v.videoHeight;
+  c.getContext("2d").drawImage(v, 0, 0);
+  c.toBlob(b => submitImage(b), "image/jpeg", 0.9);
+};
+
+// ---- manual pick
+$("pickBtn").onclick = () => {
+  const f = baseForm(); f.append("sign_id", $("signPick").value);
+  analyze(f, "Looking up the sign...");
+};
+
+// ---- questions
+async function ask(form) {
+  busy(true); setStatus("Thinking...", "");
+  try {
+    const f = form; f.append("context", context);
+    for (const [k, v] of baseForm().entries()) if (k !== "sign_language") f.append(k, v);
+    const d = await api("ask", f);
+    $("qa").classList.remove("hidden");
+    $("qOut").textContent = d.question; $("aOut").textContent = d.answer;
+    play(d.audio_b64, d.audio_mime); setStatus("Done.", "ok");
+  } catch (e) { setStatus(e.message, "err"); }
+  finally { busy(false); }
+}
+$("qBtn").onclick = () => { const t = $("qText").value.trim(); if (!t) return setStatus("Type a question first.", "err"); const f = new FormData(); f.append("text", t); ask(f); };
+$("qText").addEventListener("keydown", e => { if (e.key === "Enter") $("qBtn").click(); });
+
+let recorder = null, chunks = [], recTimer = null;
+const canRecord = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder && window.isSecureContext);
+if (!canRecord) { $("micBtn").classList.add("hidden"); $("audioFallback").classList.remove("hidden"); }
+$("micBtn").textContent = "Tap to speak";
+
+$("micBtn").onclick = async () => {
+  if (recorder && recorder.state === "recording") { recorder.stop(); return; }
+  try {
+    const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"].find(m => MediaRecorder.isTypeSupported(m)) || "";
+    recorder = new MediaRecorder(mic, mime ? { mimeType: mime } : undefined);
+    chunks = [];
+    recorder.ondataavailable = e => chunks.push(e.data);
+    recorder.onstop = () => {
+      clearTimeout(recTimer); mic.getTracks().forEach(t => t.stop());
+      $("micBtn").classList.remove("rec"); $("micBtn").textContent = "Tap to speak";
+      const type = recorder.mimeType || "audio/webm";
+      const ext = type.includes("mp4") ? "m4a" : type.includes("ogg") ? "ogg" : "webm";
+      const f = new FormData(); f.append("audio", new Blob(chunks, { type }), "question." + ext);
+      ask(f);
+    };
+    recorder.start();
+    $("micBtn").classList.add("rec"); $("micBtn").textContent = "Listening... tap to stop";
+    recTimer = setTimeout(() => recorder.state === "recording" && recorder.stop(), 25000); // STT REST limit is 30s
+  } catch (e) { setStatus("Microphone unavailable: " + e.message, "err"); }
+};
+$("audioFile").addEventListener("change", e => {
+  if (!e.target.files[0]) return;
+  const f = new FormData(); f.append("audio", e.target.files[0]); ask(f); e.target.value = "";
+});
+
+// ---- init
+(async function init() {
+  try {
+    const [langs, signs, health] = await Promise.all([
+      fetch("/api/languages").then(r => r.json()),
+      fetch("/api/signs").then(r => r.json()),
+      fetch("/api/health").then(r => r.json()),
+    ]);
+    for (const sel of [$("language"), $("signLanguage")])
+      for (const [code, name] of Object.entries(langs)) sel.add(new Option(name, code));
+    $("language").value = localStorage.getItem("lang") || "en-IN";
+    $("language").onchange = () => localStorage.setItem("lang", $("language").value);
+    for (const s of signs) $("signPick").add(new Option(s.name + " (" + s.category + ")", s.id));
+    if (!health.api_key_configured) setStatus("Server has no Sarvam API key. Add it to .env and restart.", "err");
+  } catch (e) { setStatus("Cannot reach the server.", "err"); }
+})();
+</script>
+</body>
+</html>
